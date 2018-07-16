@@ -13,21 +13,21 @@ import (
 )
 
 const (
-	failedMarshalTFJobReason = "FailedMarshalTFJob"
-	terminatedTFJobReason    = "TFJobTerminated"
+	FailedMarshalTFJobReason = "FailedMarshalTFJob"
+	TerminatedTFJobReason    = "TFJobTerminated"
 )
 
 // When a pod is added, set the defaults and enqueue the current tfjob.
-func (tc *TFJobController) addTFJob(obj interface{}) {
+func (tc *TFJobController) AddTFJob(obj interface{}) {
 	// Convert from unstructured object.
 	tfJob, err := tfJobFromUnstructured(obj)
 	if err != nil {
 		log.Errorf("Failed to convert the TFJob: %v", err)
 		// Log the failure to conditions.
-		if err == errFailedMarshal {
+		if err == ErrFailedMarshal {
 			errMsg := fmt.Sprintf("Failed to unmarshal the object to TFJob object: %v", err)
 			log.Warn(errMsg)
-			tc.recorder.Event(tfJob, v1.EventTypeWarning, failedMarshalTFJobReason, errMsg)
+			tc.Recorder.Event(tfJob, v1.EventTypeWarning, FailedMarshalTFJobReason, errMsg)
 		}
 		return
 	}
@@ -55,7 +55,7 @@ func (tc *TFJobController) addTFJob(obj interface{}) {
 }
 
 // When a pod is updated, enqueue the current tfjob.
-func (tc *TFJobController) updateTFJob(old, cur interface{}) {
+func (tc *TFJobController) UpdateTFJob(old, cur interface{}) {
 	oldTFJob, err := tfJobFromUnstructured(old)
 	if err != nil {
 		return
@@ -64,35 +64,35 @@ func (tc *TFJobController) updateTFJob(old, cur interface{}) {
 	tc.enqueueTFJob(cur)
 }
 
-func (tc *TFJobController) deletePdb(tfJob *tfv1alpha2.TFJob) error {
+func (tc *TFJobController) DeletePdb(tfJob *tfv1alpha2.TFJob) error {
 
 	// Check the pdb exist or not
-	_, err := tc.kubeClientSet.PolicyV1beta1().PodDisruptionBudgets(tfJob.Namespace).Get(tfJob.Name, metav1.GetOptions{})
+	_, err := tc.KubeClientSet.PolicyV1beta1().PodDisruptionBudgets(tfJob.Namespace).Get(tfJob.Name, metav1.GetOptions{})
 	if err != nil && k8serrors.IsNotFound(err) {
 		return nil
 	}
 
-	tc.recorder.Event(tfJob, v1.EventTypeNormal, terminatedTFJobReason,
+	tc.Recorder.Event(tfJob, v1.EventTypeNormal, TerminatedTFJobReason,
 		"TFJob is terminated, deleting pdb")
 
 	msg := fmt.Sprintf("Deleting pdb %s", tfJob.Name)
 	log.Info(msg)
 
-	if err := tc.kubeClientSet.PolicyV1beta1().PodDisruptionBudgets(tfJob.Namespace).Delete(tfJob.Name, &metav1.DeleteOptions{}); err != nil {
-		tc.recorder.Eventf(tfJob, v1.EventTypeWarning, "FailedDeletePdb", "Error deleting: %v", err)
+	if err := tc.KubeClientSet.PolicyV1beta1().PodDisruptionBudgets(tfJob.Namespace).Delete(tfJob.Name, &metav1.DeleteOptions{}); err != nil {
+		tc.Recorder.Eventf(tfJob, v1.EventTypeWarning, "FailedDeletePdb", "Error deleting: %v", err)
 		return fmt.Errorf("unable to delete pdb: %v", err)
 	} else {
-		tc.recorder.Eventf(tfJob, v1.EventTypeNormal, "SuccessfulDeletePdb", "Deleted pdb: %v", tfJob.Name)
+		tc.Recorder.Eventf(tfJob, v1.EventTypeNormal, "SuccessfulDeletePdb", "Deleted pdb: %v", tfJob.Name)
 	}
 
 	return nil
 }
 
-func (tc *TFJobController) deletePodsAndServices(tfJob *tfv1alpha2.TFJob, pods []*v1.Pod) error {
+func (tc *TFJobController) DeletePodsAndServices(tfJob *tfv1alpha2.TFJob, pods []*v1.Pod) error {
 	if len(pods) == 0 {
 		return nil
 	}
-	tc.recorder.Event(tfJob, v1.EventTypeNormal, terminatedTFJobReason,
+	tc.Recorder.Event(tfJob, v1.EventTypeNormal, TerminatedTFJobReason,
 		"TFJob is terminated, deleting pods and services")
 
 	// Delete nothing when the cleanPodPolicy is None.
@@ -104,11 +104,11 @@ func (tc *TFJobController) deletePodsAndServices(tfJob *tfv1alpha2.TFJob, pods [
 		if *tfJob.Spec.CleanPodPolicy == tfv1alpha2.CleanPodPolicyRunning && pod.Status.Phase != v1.PodRunning {
 			continue
 		}
-		if err := tc.podControl.DeletePod(pod.Namespace, pod.Name, tfJob); err != nil {
+		if err := tc.PodControl.DeletePod(pod.Namespace, pod.Name, tfJob); err != nil {
 			return err
 		}
 		// Pod and service have the same name, thus the service could be deleted using pod's name.
-		if err := tc.serviceControl.DeleteService(pod.Namespace, pod.Name, tfJob); err != nil {
+		if err := tc.ServiceControl.DeleteService(pod.Namespace, pod.Name, tfJob); err != nil {
 			return err
 		}
 	}

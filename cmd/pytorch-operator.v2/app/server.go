@@ -30,12 +30,13 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/tools/record"
 
-	"github.com/kubeflow/tf-operator/cmd/tf-operator.v2/app/options"
+	"github.com/kubeflow/tf-operator/cmd/pytorch-operator.v2/app/options"
 	"github.com/kubeflow/tf-operator/pkg/apis/tensorflow/v1alpha2"
 	tfjobclientset "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned"
 	"github.com/kubeflow/tf-operator/pkg/client/clientset/versioned/scheme"
 	tfjobinformers "github.com/kubeflow/tf-operator/pkg/client/informers/externalversions"
-	controller "github.com/kubeflow/tf-operator/pkg/controller.v2"
+	tf "github.com/kubeflow/tf-operator/pkg/controller.v2"
+	controller "github.com/kubeflow/tf-operator/pkg/pytorch-controller.v2"
 	"github.com/kubeflow/tf-operator/pkg/util/signals"
 	"github.com/kubeflow/tf-operator/pkg/version"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -97,10 +98,10 @@ func Run(opt *options.ServerOption) error {
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClientSet, resyncPeriod)
 	tfJobInformerFactory := tfjobinformers.NewSharedInformerFactory(tfJobClientSet, resyncPeriod)
 
-	unstructuredInformer := controller.NewUnstructuredTFJobInformer(kcfg)
+	unstructuredInformer := tf.NewUnstructuredTFJobInformer(kcfg)
 
-	// Create tf controller.
-	tc := controller.NewTFJobController(unstructuredInformer, kubeClientSet, tfJobClientSet, kubeInformerFactory, tfJobInformerFactory, *opt)
+	// Create pytorch controller.
+	tc := controller.NewPytorchJobController(unstructuredInformer, kubeClientSet, tfJobClientSet, kubeInformerFactory, tfJobInformerFactory, *opt)
 
 	// Start informer goroutines.
 	go kubeInformerFactory.Start(stopCh)
@@ -124,12 +125,12 @@ func Run(opt *options.ServerOption) error {
 
 	// Prepare event clients.
 	eventBroadcaster := record.NewBroadcaster()
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "tf-operator"})
+	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "pytorch-operator"})
 
 	rl := &resourcelock.EndpointsLock{
 		EndpointsMeta: metav1.ObjectMeta{
 			Namespace: namespace,
-			Name:      "tf-operator",
+			Name:      "pytorch-operator",
 		},
 		Client: leaderElectionClientSet.CoreV1(),
 		LockConfig: resourcelock.ResourceLockConfig{
@@ -156,7 +157,7 @@ func Run(opt *options.ServerOption) error {
 }
 
 func createClientSets(config *restclientset.Config) (kubeclientset.Interface, kubeclientset.Interface, tfjobclientset.Interface, error) {
-	kubeClientSet, err := kubeclientset.NewForConfig(restclientset.AddUserAgent(config, "tf-operator"))
+	kubeClientSet, err := kubeclientset.NewForConfig(restclientset.AddUserAgent(config, "pytorch-operator"))
 	if err != nil {
 		return nil, nil, nil, err
 	}

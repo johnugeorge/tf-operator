@@ -24,9 +24,9 @@ const (
 )
 
 var (
-	errGetFromKey    = fmt.Errorf("Failed to get TFJob from key")
-	errNotExists     = fmt.Errorf("The object is not found")
-	errFailedMarshal = fmt.Errorf("Failed to marshal the object to TFJob")
+	ErrGetFromKey    = fmt.Errorf("Failed to get TFJob from key")
+	ErrNotExists     = fmt.Errorf("The object is not found")
+	ErrFailedMarshal = fmt.Errorf("Failed to marshal the object to TFJob")
 )
 
 func NewUnstructuredTFJobInformer(restConfig *restclientset.Config) tfjobinformersv1alpha2.TFJobInformer {
@@ -57,21 +57,21 @@ func (tc *TFJobController) NewTFJobInformer(tfJobInformerFactory tfjobinformers.
 	return tfJobInformerFactory.Kubeflow().V1alpha2().TFJobs()
 }
 
-func (tc *TFJobController) getTFJobFromName(namespace, name string) (*tfv1alpha2.TFJob, error) {
+func (tc *TFJobController) GetTFJobFromName(namespace, name string) (*tfv1alpha2.TFJob, error) {
 	key := fmt.Sprintf("%s/%s", namespace, name)
-	return tc.getTFJobFromKey(key)
+	return tc.GetTFJobFromKey(key)
 }
 
-func (tc *TFJobController) getTFJobFromKey(key string) (*tfv1alpha2.TFJob, error) {
+func (tc *TFJobController) GetTFJobFromKey(key string) (*tfv1alpha2.TFJob, error) {
 	// Check if the key exists.
-	obj, exists, err := tc.tfJobInformer.GetIndexer().GetByKey(key)
+	obj, exists, err := tc.TfJobInformer.GetIndexer().GetByKey(key)
 	if err != nil {
 		log.Errorf("Failed to get TFJob '%s' from informer index: %+v", key, err)
-		return nil, errGetFromKey
+		return nil, ErrGetFromKey
 	}
 	if !exists {
 		// This happens after a tfjob was deleted, but the work queue still had an entry for it.
-		return nil, errNotExists
+		return nil, ErrNotExists
 	}
 
 	tfjob, err := tfJobFromUnstructured(obj)
@@ -86,7 +86,7 @@ func tfJobFromUnstructured(obj interface{}) (*tfv1alpha2.TFJob, error) {
 	un, ok := obj.(*metav1unstructured.Unstructured)
 	if !ok {
 		log.Warn("The object in index is not an unstructured")
-		return nil, errGetFromKey
+		return nil, ErrGetFromKey
 	}
 	var tfjob tfv1alpha2.TFJob
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(un.Object, &tfjob)
@@ -94,7 +94,7 @@ func tfJobFromUnstructured(obj interface{}) (*tfv1alpha2.TFJob, error) {
 	// https://github.com/kubeflow/tf-operator/issues/641
 	// TODO(gaocegege): Add more validation here.
 	if err != nil || validation.ValidateAlphaTwoTFJobSpec(&tfjob.Spec) != nil {
-		return &tfjob, errFailedMarshal
+		return &tfjob, ErrFailedMarshal
 	}
 	return &tfjob, nil
 }
@@ -103,7 +103,7 @@ func unstructuredFromTFJob(obj interface{}, tfJob *tfv1alpha2.TFJob) error {
 	un, ok := obj.(*metav1unstructured.Unstructured)
 	if !ok {
 		log.Warn("The objetc in index is not an unstructured")
-		return errGetFromKey
+		return ErrGetFromKey
 	}
 
 	var err error

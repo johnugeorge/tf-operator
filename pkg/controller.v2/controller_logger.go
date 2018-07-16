@@ -20,7 +20,7 @@ import (
 	tfv1alpha2 "github.com/kubeflow/tf-operator/pkg/apis/tensorflow/v1alpha2"
 )
 
-func loggerForReplica(tfjob *tfv1alpha2.TFJob, rtype string) *log.Entry {
+func LoggerForReplica(tfjob *tfv1alpha2.TFJob, rtype string) *log.Entry {
 	return log.WithFields(log.Fields{
 		// We use job to match the key used in controller.go
 		// In controller.go we log the key used with the workqueue.
@@ -30,7 +30,7 @@ func loggerForReplica(tfjob *tfv1alpha2.TFJob, rtype string) *log.Entry {
 	})
 }
 
-func loggerForTFJob(tfjob *tfv1alpha2.TFJob) *log.Entry {
+func LoggerForTFJob(tfjob *tfv1alpha2.TFJob) *log.Entry {
 	return log.WithFields(log.Fields{
 		// We use job to match the key used in controller.go
 		// In controller.go we log the key used with the workqueue.

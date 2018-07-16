@@ -46,7 +46,7 @@ const (
 
 // reconcilePods checks and updates pods for each given TFReplicaSpec.
 // It will requeue the tfjob in case of an error while creating/deleting pods.
-func (tc *TFJobController) reconcilePods(
+func (tc *TFJobController) ReconcilePods(
 	tfjob *tfv1alpha2.TFJob,
 	pods []*v1.Pod,
 	rtype tfv1alpha2.TFReplicaType,
@@ -59,15 +59,15 @@ func (tc *TFJobController) reconcilePods(
 	replicas := int(*spec.Replicas)
 	restart := false
 
-	initializeTFReplicaStatuses(tfjob, rtype)
+	InitializeTFReplicaStatuses(tfjob, rtype)
 
-	podSlices := getPodSlices(pods, replicas, loggerForReplica(tfjob, rt))
+	podSlices := getPodSlices(pods, replicas, LoggerForReplica(tfjob, rt))
 	for index, podSlice := range podSlices {
 		if len(podSlice) > 1 {
-			loggerForReplica(tfjob, rt).Warningf("We have too many pods for %s %d", rt, index)
+			LoggerForReplica(tfjob, rt).Warningf("We have too many pods for %s %d", rt, index)
 			// TODO(gaocegege): Kill some pods.
 		} else if len(podSlice) == 0 {
-			loggerForReplica(tfjob, rt).Infof("Need to create new pod: %s-%d", rt, index)
+			LoggerForReplica(tfjob, rt).Infof("Need to create new pod: %s-%d", rt, index)
 			err := tc.createNewPod(tfjob, rt, strconv.Itoa(index), spec)
 			if err != nil {
 				return err
@@ -86,8 +86,8 @@ func (tc *TFJobController) reconcilePods(
 					}
 				}
 				if pod.Status.Phase == v1.PodFailed && train_util.IsRetryableExitCode(exitCode) {
-					loggerForReplica(tfjob, rt).Infof("Need to restart the pod: %s-%d", rt, index)
-					if err := tc.podControl.DeletePod(pod.Namespace, pod.Name, tfjob); err != nil {
+					LoggerForReplica(tfjob, rt).Infof("Need to restart the pod: %s-%d", rt, index)
+					if err := tc.PodControl.DeletePod(pod.Namespace, pod.Name, tfjob); err != nil {
 						return err
 					}
 					restart = true
@@ -129,8 +129,8 @@ func (tc *TFJobController) createNewPod(tfjob *tfv1alpha2.TFJob, rt, index strin
 		utilruntime.HandleError(fmt.Errorf("Couldn't get key for tfjob object %#v: %v", tfjob, err))
 		return err
 	}
-	expectationPodsKey := genExpectationPodsKey(tfjobKey, rt)
-	err = tc.expectations.ExpectCreations(expectationPodsKey, 1)
+	expectationPodsKey := GenExpectationPodsKey(tfjobKey, rt)
+	err = tc.Expectations.ExpectCreations(expectationPodsKey, 1)
 	if err != nil {
 		return err
 	}
@@ -164,12 +164,12 @@ func (tc *TFJobController) createNewPod(tfjob *tfv1alpha2.TFJob, rt, index strin
 	// the pod template. We recommend to set it from the replica level.
 	if podTemplate.Spec.RestartPolicy != v1.RestartPolicy("") {
 		errMsg := "Restart policy in pod template will be overwritten by restart policy in replica spec"
-		loggerForReplica(tfjob, rt).Warning(errMsg)
-		tc.recorder.Event(tfjob, v1.EventTypeWarning, podTemplateRestartPolicyReason, errMsg)
+		LoggerForReplica(tfjob, rt).Warning(errMsg)
+		tc.Recorder.Event(tfjob, v1.EventTypeWarning, podTemplateRestartPolicyReason, errMsg)
 	}
 	setRestartPolicy(podTemplate, spec)
 
-	err = tc.podControl.CreatePodsWithControllerRef(tfjob.Namespace, podTemplate, tfjob, controllerRef)
+	err = tc.PodControl.CreatePodsWithControllerRef(tfjob.Namespace, podTemplate, tfjob, controllerRef)
 	if err != nil && errors.IsTimeout(err) {
 		// Pod is created but its initialization has timed out.
 		// If the initialization is successful eventually, the
@@ -219,7 +219,7 @@ func setRestartPolicy(podTemplateSpec *v1.PodTemplateSpec, spec *tfv1alpha2.TFRe
 // getPodsForTFJob returns the set of pods that this tfjob should manage.
 // It also reconciles ControllerRef by adopting/orphaning.
 // Note that the returned Pods are pointers into the cache.
-func (tc *TFJobController) getPodsForTFJob(tfjob *tfv1alpha2.TFJob) ([]*v1.Pod, error) {
+func (tc *TFJobController) GetPodsForTFJob(tfjob *tfv1alpha2.TFJob) ([]*v1.Pod, error) {
 	// Create selector.
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
 		MatchLabels: generator.GenLabels(tfjob.Name),
@@ -230,7 +230,7 @@ func (tc *TFJobController) getPodsForTFJob(tfjob *tfv1alpha2.TFJob) ([]*v1.Pod, 
 	}
 	// List all pods to include those that don't match the selector anymore
 	// but have a ControllerRef pointing to this controller.
-	pods, err := tc.podLister.Pods(tfjob.Namespace).List(labels.Everything())
+	pods, err := tc.PodLister.Pods(tfjob.Namespace).List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (tc *TFJobController) getPodsForTFJob(tfjob *tfv1alpha2.TFJob) ([]*v1.Pod, 
 	// If any adoptions are attempted, we should first recheck for deletion
 	// with an uncached quorum read sometime after listing Pods (see #42639).
 	canAdoptFunc := RecheckDeletionTimestamp(func() (metav1.Object, error) {
-		fresh, err := tc.tfJobClientSet.KubeflowV1alpha2().TFJobs(tfjob.Namespace).Get(tfjob.Name, metav1.GetOptions{})
+		fresh, err := tc.TfJobClientSet.KubeflowV1alpha2().TFJobs(tfjob.Namespace).Get(tfjob.Name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +247,7 @@ func (tc *TFJobController) getPodsForTFJob(tfjob *tfv1alpha2.TFJob) ([]*v1.Pod, 
 		}
 		return fresh, nil
 	})
-	cm := controller.NewPodControllerRefManager(tc.podControl, tfjob, selector, controllerKind, canAdoptFunc)
+	cm := controller.NewPodControllerRefManager(tc.PodControl, tfjob, selector, controllerKind, canAdoptFunc)
 	return cm.ClaimPods(pods)
 }
 
@@ -271,7 +271,7 @@ func filterPodsForTFReplicaType(pods []*v1.Pod, tfReplicaType string) []*v1.Pod 
 	return result
 }
 
-func genExpectationPodsKey(tfjobKey, replicaType string) string {
+func GenExpectationPodsKey(tfjobKey, replicaType string) string {
 	return tfjobKey + "/" + strings.ToLower(replicaType) + "/pods"
 }
 
@@ -293,7 +293,7 @@ func RecheckDeletionTimestamp(getObject func() (metav1.Object, error)) func() er
 }
 
 // When a pod is created, enqueue the tfjob that manages it and update its expectations.
-func (tc *TFJobController) addPod(obj interface{}) {
+func (tc *TFJobController) AddPod(obj interface{}) {
 	pod := obj.(*v1.Pod)
 	if pod.DeletionTimestamp != nil {
 		// on a restart of the controller controller, it's possible a new pod shows up in a state that
@@ -312,19 +312,19 @@ func (tc *TFJobController) addPod(obj interface{}) {
 
 		tfjobKey, err := KeyFunc(tfjob)
 		if err != nil {
-			loggerForTFJob(tfjob).Infof("Failed to get the key of the tfjob: %v", err)
+			LoggerForTFJob(tfjob).Infof("Failed to get the key of the tfjob: %v", err)
 			return
 		}
 
 		if _, ok := pod.Labels[tfReplicaTypeLabel]; !ok {
-			loggerForTFJob(tfjob).Info("This pod maybe not created by tf-operator")
+			LoggerForTFJob(tfjob).Info("This pod maybe not created by tf-operator")
 			return
 		}
 
 		rtype := pod.Labels[tfReplicaTypeLabel]
-		expectationPodsKey := genExpectationPodsKey(tfjobKey, rtype)
+		expectationPodsKey := GenExpectationPodsKey(tfjobKey, rtype)
 
-		tc.expectations.CreationObserved(expectationPodsKey)
+		tc.Expectations.CreationObserved(expectationPodsKey)
 		tc.enqueueTFJob(tfjob)
 
 		return
@@ -342,7 +342,7 @@ func (tc *TFJobController) addPod(obj interface{}) {
 // When a pod is updated, figure out what tfjob/s manage it and wake them up.
 // If the labels of the pod have changed we need to awaken both the old
 // and new replica set. old and cur must be *v1.Pod types.
-func (tc *TFJobController) updatePod(old, cur interface{}) {
+func (tc *TFJobController) UpdatePod(old, cur interface{}) {
 	curPod := cur.(*v1.Pod)
 	oldPod := old.(*v1.Pod)
 	if curPod.ResourceVersion == oldPod.ResourceVersion {
@@ -376,7 +376,7 @@ func (tc *TFJobController) updatePod(old, cur interface{}) {
 
 // When a pod is deleted, enqueue the tfjob that manages the pod and update its expectations.
 // obj could be an *v1.Pod, or a DeletionFinalStateUnknown marker item.
-func (tc *TFJobController) deletePod(obj interface{}) {
+func (tc *TFJobController) DeletePod(obj interface{}) {
 	pod, ok := obj.(*v1.Pod)
 
 	// When a delete is dropped, the relist will notice a pod in the store not
@@ -411,13 +411,13 @@ func (tc *TFJobController) deletePod(obj interface{}) {
 	}
 
 	if _, ok := pod.Labels[tfReplicaTypeLabel]; !ok {
-		loggerForTFJob(tfJob).Info("This pod maybe not created by tf-operator")
+		LoggerForTFJob(tfJob).Info("This pod maybe not created by tf-operator")
 		return
 	}
 
 	rtype := pod.Labels[tfReplicaTypeLabel]
-	expectationPodsKey := genExpectationPodsKey(tfJobKey, rtype)
+	expectationPodsKey := GenExpectationPodsKey(tfJobKey, rtype)
 
-	tc.expectations.DeletionObserved(expectationPodsKey)
+	tc.Expectations.DeletionObserved(expectationPodsKey)
 	tc.enqueueTFJob(tfJob)
 }

@@ -32,20 +32,21 @@ import (
 	kubeclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
-	corelisters "k8s.io/client-go/listers/core/v1"
+	//corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/kubernetes/pkg/controller"
 
-	"github.com/kubeflow/tf-operator/cmd/tf-operator.v2/app/options"
+	"github.com/kubeflow/tf-operator/cmd/pytorch-operator.v2/app/options"
 	tfv1alpha2 "github.com/kubeflow/tf-operator/pkg/apis/tensorflow/v1alpha2"
 	tfjobclientset "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned"
 	tfjobscheme "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned/scheme"
 	tfjobinformers "github.com/kubeflow/tf-operator/pkg/client/informers/externalversions"
 	tfjobinformersv1alpha2 "github.com/kubeflow/tf-operator/pkg/client/informers/externalversions/kubeflow/v1alpha2"
-	tfjoblisters "github.com/kubeflow/tf-operator/pkg/client/listers/kubeflow/v1alpha2"
+	//tfjoblisters "github.com/kubeflow/tf-operator/pkg/client/listers/kubeflow/v1alpha2"
 	"github.com/kubeflow/tf-operator/pkg/control"
+	tf "github.com/kubeflow/tf-operator/pkg/controller.v2"
 	"github.com/kubeflow/tf-operator/pkg/generator"
 )
 
@@ -67,104 +68,20 @@ var (
 	KeyFunc = cache.DeletionHandlingMetaNamespaceKeyFunc
 
 	// DefaultTFJobControllerConfiguration is the suggested tf-operator configuration for production.
-	DefaultTFJobControllerConfiguration = TFJobControllerConfiguration{
-		ReconcilerSyncLoopPeriod: metav1.Duration{Duration: 15 * time.Second},
-		EnableGangScheduling:     false,
-	}
+	//DefaultTFJobControllerConfiguration = TFJobControllerConfiguration{
+	//	ReconcilerSyncLoopPeriod: metav1.Duration{Duration: 15 * time.Second},
+	//	enableGangScheduling:     false,
+	//}
 )
 
-// TFJobControllerConfiguration contains configuration of tf-operator.
-// DefaultTimerConfig is the suggested tf-operator configuration for production.
-type TFJobControllerConfiguration struct {
-	// ReconcilerSyncLoopPeriod is the amount of time the reconciler sync states loop
-	// wait between two reconciler sync.
-	// It is set to 15 sec by default.
-	// TODO(cph): maybe we can let it grows by multiple in the future
-	// and up to 5 minutes to reduce idle loop.
-	// e.g. 15s, 30s, 60s, 120s...
-	ReconcilerSyncLoopPeriod metav1.Duration
-
-	// Enable gang scheduling by kube-arbitrator
-	EnableGangScheduling bool
-}
-
-// TFJobController is the type for TFJob Controller, which manages
+// PytorchJobController is the type for PytorchJob Controller, which manages
 // the lifecycle of TFJobs.
-type TFJobController struct {
-	Config TFJobControllerConfiguration
-
-	// podControl is used to add or delete pods.
-	PodControl controller.PodControlInterface
-
-	// serviceControl is used to add or delete services.
-	ServiceControl control.ServiceControlInterface
-
-	// kubeClientSet is a standard kubernetes clientset.
-	KubeClientSet kubeclientset.Interface
-
-	// tfJobClientSet is a clientset for CRD TFJob.
-	TfJobClientSet tfjobclientset.Interface
-
-	// To allow injection of syncTFJob for testing.
-	SyncHandler func(tfJobKey string) (bool, error)
-
-	// To allow injection of updateStatus for testing.
-	UpdateStatusHandler func(tfjob *tfv1alpha2.TFJob) error
-
-	// tfJobInformer is a temporary field for unstructured informer support.
-	TfJobInformer cache.SharedIndexInformer
-
-	// Listers for TFJob, Pod and Service
-	// tfJobLister can list/get tfjobs from the shared informer's store.
-	TfJobLister tfjoblisters.TFJobLister
-
-	// podLister can list/get pods from the shared informer's store.
-	PodLister corelisters.PodLister
-
-	// serviceLister can list/get services from the shared informer's store.
-	ServiceLister corelisters.ServiceLister
-
-	// tfJobInformerSynced returns true if the tfjob store has been synced at least once.
-	TfJobInformerSynced cache.InformerSynced
-
-	// podInformerSynced returns true if the pod store has been synced at least once.
-	PodInformerSynced cache.InformerSynced
-
-	// serviceInformerSynced returns true if the service store has been synced at least once.
-	ServiceInformerSynced cache.InformerSynced
-
-	// A TTLCache of pod/services creates/deletes each tfjob expects to see
-	// We use TFJob namespace/name + TFReplicaType + pods/services as an expectation key,
-	// For example, there is a TFJob with namespace "tf-operator" and name "tfjob-abc":
-	// {
-	//     "PS": {
-	//         "Replicas": 2,
-	//     },
-	//     "Worker": {
-	//         "Replicas": 4,
-	//     }
-	// }
-	// We will create 4 expectations:
-	// - "tf-operator/tfjob-abc/ps/services", expects 2 adds.
-	// - "tf-operator/tfjob-abc/ps/pods", expects 2 adds.
-	// - "tf-operator/tfjob-abc/worker/services", expects 4 adds.
-	// - "tf-operator/tfjob-abc/worker/pods", expects 4 adds.
-	Expectations controller.ControllerExpectationsInterface
-
-	// workQueue is a rate limited work queue. This is used to queue work to be
-	// processed instead of performing it as soon as a change happens. This
-	// means we can ensure we only process a fixed amount of resources at a
-	// time, and makes it easy to ensure we are never processing the same item
-	// simultaneously in two different workers.
-	WorkQueue workqueue.RateLimitingInterface
-
-	// recorder is an event recorder for recording Event resources to the
-	// Kubernetes API.
-	Recorder record.EventRecorder
+type PytorchJobController struct {
+	tf.TFJobController
 }
 
 // NewTFJobController returns a new TFJob controller.
-func NewTFJobController(
+func NewPytorchJobController(
 	// This variable is for unstructured informer.
 	tfJobInformer tfjobinformersv1alpha2.TFJobInformer,
 	kubeClientSet kubeclientset.Interface,
@@ -173,7 +90,7 @@ func NewTFJobController(
 	// This field is not used now but we keep it since it will be used
 	// after we support CRD validation.
 	tfJobInformerFactory tfjobinformers.SharedInformerFactory,
-	option options.ServerOption) *TFJobController {
+	option options.ServerOption) *PytorchJobController {
 
 	tfjobscheme.AddToScheme(scheme.Scheme)
 
@@ -193,9 +110,9 @@ func NewTFJobController(
 		Recorder:   eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: controllerName}),
 	}
 
-	// Create new TFJobController.
-	tc := &TFJobController{
-		Config: TFJobControllerConfiguration{
+	// Create new PytorchJobController.
+	tc := &PytorchJobController{tf.TFJobController{
+		Config: tf.TFJobControllerConfiguration{
 			ReconcilerSyncLoopPeriod: metav1.Duration{Duration: 15 * time.Second},
 			EnableGangScheduling:     option.EnableGangScheduling,
 		},
@@ -206,6 +123,7 @@ func NewTFJobController(
 		Expectations:   controller.NewControllerExpectations(),
 		WorkQueue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), tfv1alpha2.Plural),
 		Recorder:       recorder,
+	},
 	}
 
 	// Set sync handler.
@@ -258,7 +176,7 @@ func NewTFJobController(
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workqueue and wait for
 // workers to finish processing their current work items.
-func (tc *TFJobController) Run(threadiness int, stopCh <-chan struct{}) error {
+func (tc *PytorchJobController) Run(threadiness int, stopCh <-chan struct{}) error {
 	defer utilruntime.HandleCrash()
 	defer tc.WorkQueue.ShutDown()
 
@@ -295,14 +213,14 @@ func (tc *TFJobController) Run(threadiness int, stopCh <-chan struct{}) error {
 // runWorker is a long-running function that will continually call the
 // processNextWorkItem function in order to read and process a message on the
 // workqueue.
-func (tc *TFJobController) runWorker() {
+func (tc *PytorchJobController) runWorker() {
 	for tc.processNextWorkItem() {
 	}
 }
 
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
-func (tc *TFJobController) processNextWorkItem() bool {
+func (tc *PytorchJobController) processNextWorkItem() bool {
 	key, quit := tc.WorkQueue.Get()
 	if quit {
 		return false
@@ -313,10 +231,10 @@ func (tc *TFJobController) processNextWorkItem() bool {
 	if err != nil {
 		log.Errorf("Failed to get TFJob from key %s: %v", key, err)
 		// Log the failure to conditions.
-		if err == ErrFailedMarshal {
+		if err == tf.ErrFailedMarshal {
 			errMsg := fmt.Sprintf("Failed to unmarshal the object to TFJob object: %v", err)
-			LoggerForTFJob(tfJob).Warn(errMsg)
-			tc.Recorder.Event(tfJob, v1.EventTypeWarning, FailedMarshalTFJobReason, errMsg)
+			tf.LoggerForTFJob(tfJob).Warn(errMsg)
+			tc.Recorder.Event(tfJob, v1.EventTypeWarning, tf.FailedMarshalTFJobReason, errMsg)
 		}
 		return true
 	}
@@ -336,7 +254,7 @@ func (tc *TFJobController) processNextWorkItem() bool {
 	return true
 }
 
-func (tc *TFJobController) enqueueTFJob(tfjob interface{}) {
+func (tc *PytorchJobController) enqueueTFJob(tfjob interface{}) {
 	key, err := KeyFunc(tfjob)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("Couldn't get key for tfjob object %#v: %v", tfjob, err))
@@ -350,7 +268,7 @@ func (tc *TFJobController) enqueueTFJob(tfjob interface{}) {
 // syncTFJob syncs the tfjob with the given key if it has had its expectations fulfilled, meaning
 // it did not expect to see any more of its pods/services created or deleted.
 // This function is not meant to be invoked concurrently with the same key.
-func (tc *TFJobController) syncTFJob(key string) (bool, error) {
+func (tc *PytorchJobController) syncTFJob(key string) (bool, error) {
 	startTime := time.Now()
 	defer func() {
 		log.Infof("Finished syncing tfjob %q (%v)", key, time.Since(startTime))
@@ -366,7 +284,7 @@ func (tc *TFJobController) syncTFJob(key string) (bool, error) {
 
 	sharedTFJob, err := tc.GetTFJobFromName(namespace, name)
 	if err != nil {
-		if err == ErrNotExists {
+		if err == tf.ErrNotExists {
 			log.Infof("TFJob has been deleted: %v", key)
 			// jm.expectations.DeleteExpectations(key)
 			return true, nil
@@ -400,7 +318,7 @@ func (tc *TFJobController) syncTFJob(key string) (bool, error) {
 }
 
 // SyncPdb will create a PDB for gang scheduling by kube-arbitrator.
-func (tc *TFJobController) syncPdb(tfjob *tfv1alpha2.TFJob) (*v1beta1.PodDisruptionBudget, error) {
+func (tc *PytorchJobController) syncPdb(tfjob *tfv1alpha2.TFJob) (*v1beta1.PodDisruptionBudget, error) {
 	// Sum of tfjob's replicas
 	tfjobReplicas := int32(0)
 	for _, r := range tfjob.Spec.TFReplicaSpecs {
@@ -444,7 +362,7 @@ func (tc *TFJobController) syncPdb(tfjob *tfv1alpha2.TFJob) (*v1beta1.PodDisrupt
 
 // reconcileTFJobs checks and updates replicas for each given TFReplicaSpec.
 // It will requeue the tfjob in case of an error while creating/deleting pods/services.
-func (tc *TFJobController) reconcileTFJobs(tfjob *tfv1alpha2.TFJob) error {
+func (tc *PytorchJobController) reconcileTFJobs(tfjob *tfv1alpha2.TFJob) error {
 	log.Infof("Reconcile TFJobs %s", tfjob.Name)
 
 	pods, err := tc.GetPodsForTFJob(tfjob)
@@ -462,7 +380,7 @@ func (tc *TFJobController) reconcileTFJobs(tfjob *tfv1alpha2.TFJob) error {
 	}
 
 	// If the TFJob is terminated, delete all pods and services.
-	if IsSucceeded(tfjob.Status) || IsFailed(tfjob.Status) {
+	if tf.IsSucceeded(tfjob.Status) || tf.IsFailed(tfjob.Status) {
 		if err := tc.DeletePodsAndServices(tfjob, pods); err != nil {
 			return err
 		}
@@ -474,9 +392,9 @@ func (tc *TFJobController) reconcileTFJobs(tfjob *tfv1alpha2.TFJob) error {
 		}
 
 		// Initialize the status.
-		InitializeTFReplicaStatuses(tfjob, tfv1alpha2.TFReplicaTypeWorker)
-		InitializeTFReplicaStatuses(tfjob, tfv1alpha2.TFReplicaTypePS)
-		InitializeTFReplicaStatuses(tfjob, tfv1alpha2.TFReplicaTypeChief)
+		tf.InitializeTFReplicaStatuses(tfjob, tfv1alpha2.TFReplicaTypeWorker)
+		tf.InitializeTFReplicaStatuses(tfjob, tfv1alpha2.TFReplicaTypePS)
+		tf.InitializeTFReplicaStatuses(tfjob, tfv1alpha2.TFReplicaTypeChief)
 		return tc.UpdateStatusHandler(tfjob)
 	}
 
@@ -506,7 +424,7 @@ func (tc *TFJobController) reconcileTFJobs(tfjob *tfv1alpha2.TFJob) error {
 // satisfiedExpectations returns true if the required adds/dels for the given tfjob have been observed.
 // Add/del counts are established by the controller at sync time, and updated as controllees are observed by the controller
 // manager.
-func (tc *TFJobController) satisfiedExpectations(tfjob *tfv1alpha2.TFJob) bool {
+func (tc *PytorchJobController) satisfiedExpectations(tfjob *tfv1alpha2.TFJob) bool {
 	satisfied := false
 	tfjobKey, err := KeyFunc(tfjob)
 	if err != nil {
@@ -516,11 +434,11 @@ func (tc *TFJobController) satisfiedExpectations(tfjob *tfv1alpha2.TFJob) bool {
 
 	for rtype := range tfjob.Spec.TFReplicaSpecs {
 		// Check the expectations of the pods.
-		expectationPodsKey := GenExpectationPodsKey(tfjobKey, string(rtype))
+		expectationPodsKey := tf.GenExpectationPodsKey(tfjobKey, string(rtype))
 		satisfied = satisfied || tc.Expectations.SatisfiedExpectations(expectationPodsKey)
 
 		// Check the expectations of the services.
-		expectationServicesKey := GenExpectationServicesKey(tfjobKey, string(rtype))
+		expectationServicesKey := tf.GenExpectationServicesKey(tfjobKey, string(rtype))
 		satisfied = satisfied || tc.Expectations.SatisfiedExpectations(expectationServicesKey)
 	}
 
@@ -530,7 +448,7 @@ func (tc *TFJobController) satisfiedExpectations(tfjob *tfv1alpha2.TFJob) bool {
 // resolveControllerRef returns the tfjob referenced by a ControllerRef,
 // or nil if the ControllerRef could not be resolved to a matching tfjob
 // of the correct Kind.
-func (tc *TFJobController) resolveControllerRef(namespace string, controllerRef *metav1.OwnerReference) *tfv1alpha2.TFJob {
+func (tc *PytorchJobController) resolveControllerRef(namespace string, controllerRef *metav1.OwnerReference) *tfv1alpha2.TFJob {
 	// We can't look up by UID, so look up by Name and then verify UID.
 	// Don't even try to look up by Name if it's the wrong Kind.
 	if controllerRef.Kind != controllerKind.Kind {
